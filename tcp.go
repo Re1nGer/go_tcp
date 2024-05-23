@@ -14,6 +14,10 @@ func main() {
 	}
 	defer listener.Close()
 
+	//var m map[string]int
+
+	//m = make(map[string]int)
+
 	fmt.Println("Server is listening on port 6379")
 
 	for {
@@ -25,16 +29,44 @@ func main() {
 		}
 
 		// Handle client connection in a goroutine
+		//go handleClient(conn)
+
+		//line := bufio.NewReader(conn)
+
+		//res, err := line.ReadBytes('\n')
+
+		if err != nil {
+			panic(err)
+		}
+
 		go handleClient(conn)
+
+		//defer conn.Close()
+		//fmt.Print(res)
 	}
 }
 
 func handleClient(conn net.Conn) {
-	defer conn.Close()
+	//defer conn.Close()
 
-	// Read and process data from the client
-	// ...
+	// Read data from the client
+	/* 	buffer := make([]byte, 1024)
+	   	n, err := conn.Read(buffer)
+	   	if err != nil {
+	   		fmt.Println("Error reading:", err.Error())
+	   		return
+	   	}
+	   	receivedData := string(buffer[:n])
+	   	fmt.Println("Received message from client:", receivedData) */
 
-	// Write data back to the client
-	// ...
+	// Respond back to the client
+	response := "+PONG\r\n"
+
+	_, _ = conn.Write([]byte(response))
+
+	/* 	if err != nil {
+		fmt.Println("Error writing:", err.Error())
+		return
+	} */
+	//fmt.Println("Sent response to client:", response)
 }
