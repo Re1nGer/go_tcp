@@ -2,10 +2,8 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 	"unicode"
 )
@@ -137,6 +135,7 @@ func handleClient(conn net.Conn, map_con map[net.Conn]bool, items map[string][]b
 			break
 		}
 	} */
+
 }
 
 func stripNewlines(s string) string {
@@ -178,39 +177,15 @@ func (w *Writer) ParseRESP(reader net.Conn) ([]CommandArg, error) {
 			break
 		}
 
-		value, par_err := parseLine(line)
+		/* 		value, par_err := parseLine(line)
 
-		if par_err != nil {
-			return nil, err
-		}
+		   		if par_err != nil {
+		   			return nil, err
+		   		}
 
-		args = append(args, CommandArg{Value: value})
+		   		args = append(args, CommandArg{Value: value}) */
 	}
 	return args, nil
-}
-
-func parseLine(line string) (string, error) {
-	if len(line) == 0 {
-		return "", errors.New("empty RESP line")
-	}
-
-	switch line[0] {
-	case '+':
-		return line[1:], nil
-	case '-':
-		return line[1:], nil
-	case ':':
-		value, err := strconv.Atoi(line[1:])
-		if err != nil {
-			return "", errors.New("invalid integer format")
-		}
-		return strconv.Itoa(value), nil
-	case '*':
-		// Array parsing omitted for brevity (similar logic applies)
-	default:
-		return "", errors.New("unsupported RESP message type")
-	}
-	return "", nil
 }
 
 type CommandArg struct {
@@ -219,6 +194,20 @@ type CommandArg struct {
 }
 
 type Writer struct {
-	w     bufio.Writer
-	resp3 bool
+	w   bufio.Writer
+	b   []byte
+	err error
+}
+
+type Reader struct {
+	rd    *bufio.Reader
+	buf   []byte
+	start int
+	end   int
+	cmds  []Command
+}
+
+type Command struct {
+	args [][]byte
+	Raw  []byte
 }
