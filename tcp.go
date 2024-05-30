@@ -23,9 +23,9 @@ func main() {
 
 	fmt.Println("Server is listening on port 6379")
 
-	map_con := map[net.Conn]bool{}
+	map_con := make(map[net.Conn]bool)
 
-	var items = make(map[string][]byte)
+	items := make(map[string][]byte)
 
 	for {
 		// Accept incoming connections
@@ -46,7 +46,7 @@ func main() {
 			panic(err)
 		}
 
-		go handleClient(conn, map_con, items)
+		go handleClient(conn, &map_con, &items)
 
 		//defer conn.Close()
 		//fmt.Print(res)
@@ -57,7 +57,7 @@ func (w *Writer) WriteInline(s string) {
 	fmt.Fprintf(&w.w, "+%s\r\n", toInline(s))
 }
 
-func handleClient(conn net.Conn, map_con map[net.Conn]bool, items map[string][]byte) {
+func handleClient(conn net.Conn, map_con *map[net.Conn]bool, items *map[string][]byte) {
 	//defer conn.Close()
 
 	// Read data from the client
@@ -78,9 +78,9 @@ func handleClient(conn net.Conn, map_con map[net.Conn]bool, items map[string][]b
 
 	for {
 
-		message, err := reader.ReadString('\n')
+		b, err := reader.ReadBytes('\n')
 
-		fmt.Print(message)
+		fmt.Print(b, string(b))
 
 		if err != nil {
 			if err.Error() != "EOF" {
@@ -89,53 +89,41 @@ func handleClient(conn net.Conn, map_con map[net.Conn]bool, items map[string][]b
 			break
 		}
 
-		if err != nil {
-			panic(err)
+		if len(b) > 0 {
+			switch b[0] {
+			case '$':
+				n, _ := parseInt([]byte{b[1]})
+				fmt.Println("Captured dollar sign, potentially can know the size of the buffer", n)
+			case '*':
+				marks := make([]int, 0, 16)
+				fmt.Println(marks)
+			}
+			fmt.Println("Default Case")
 		}
-
-		if message == "" {
-			break
-		}
-
-		/* 		value, par_err := parseLine(message)
-
-		   		if par_err != nil {
-		   			break
-		   		}
-
-		   		args = append(args, CommandArg{Value: value}) */
 	}
+}
 
-	/* 	for {
-
-		message, err := reader.ReadString('\n')
-
-		if strings.Contains(message, "*") {
-			counter += 1
+func parseInt(b []byte) (int, bool) {
+	if len(b) == 1 && b[0] >= '0' && b[0] <= '9' {
+		return int(b[0] - '0'), true
+	}
+	var n int
+	var sign bool
+	var i int
+	if len(b) > 0 && b[0] == '-' {
+		sign = true
+		i++
+	}
+	for ; i < len(b); i++ {
+		if b[i] < '0' || b[i] > '9' {
+			return 0, false
 		}
-
-		if message == "" {
-			break
-		}
-		if err != nil {
-			if err.Error() != "EOF" {
-				fmt.Println("Error reading from connection:", err)
-			}
-			break
-		}
-
-		fmt.Print("Received message: ", message)
-
-		buf.WriteInline("PONG")
-
-		buf.w.Flush()
-
-		if err != nil {
-			fmt.Println("Error writing to connection:", err)
-			break
-		}
-	} */
-
+		n = n*10 + int(b[i]-'0')
+	}
+	if sign {
+		n *= -1
+	}
+	return n, true
 }
 
 func stripNewlines(s string) string {
@@ -156,36 +144,6 @@ func toInline(s string) string {
 		}
 		return r
 	}, s)
-}
-
-func (w *Writer) ParseRESP(reader net.Conn) ([]CommandArg, error) {
-
-	scanner := bufio.NewReader(reader)
-
-	var args []CommandArg
-
-	for {
-		line, err := scanner.ReadString('\n')
-
-		fmt.Print(line)
-
-		if err != nil {
-			return nil, err
-		}
-
-		if line == "" {
-			break
-		}
-
-		/* 		value, par_err := parseLine(line)
-
-		   		if par_err != nil {
-		   			return nil, err
-		   		}
-
-		   		args = append(args, CommandArg{Value: value}) */
-	}
-	return args, nil
 }
 
 type CommandArg struct {
