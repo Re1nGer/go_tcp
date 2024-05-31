@@ -58,29 +58,20 @@ func (w *Writer) WriteInline(s string) {
 }
 
 func handleClient(conn net.Conn, map_con *map[net.Conn]bool, items *map[string][]byte) {
-	//defer conn.Close()
-
-	// Read data from the client
-	//bufWriter := bufio.NewWriter(conn)
-
-	//buf := &Writer{w: *bufWriter}
 
 	reader := bufio.NewReader(conn)
 
-	/* 	res, err := buf.ParseRESP(conn)
-	   	if err != nil {
-	   		panic(err)
-	   	}
+	//writer := bufio.NewWriter(conn)
 
-	   	fmt.Println(res) */
-
-	//var args []CommandArg
+	var args []string
 
 	for {
 
 		b, err := reader.ReadBytes('\n')
 
-		fmt.Print(b, string(b))
+		//m, _ := reader.ReadString('\n')
+
+		fmt.Println(b, string(b))
 
 		if err != nil {
 			if err.Error() != "EOF" {
@@ -89,16 +80,36 @@ func handleClient(conn net.Conn, map_con *map[net.Conn]bool, items *map[string][
 			break
 		}
 
+		//conn.Write([]byte("+PONG\r\n"))
+
+		//fmt.Println()
+
 		if len(b) > 0 {
 			switch b[0] {
+			default:
+				args = append(args, string(b))
 			case '$':
 				n, _ := parseInt([]byte{b[1]})
 				fmt.Println("Captured dollar sign, potentially can know the size of the buffer", n)
 			case '*':
 				marks := make([]int, 0, 16)
 				fmt.Println(marks)
+			case '+':
+				//simple string
+				args = append(args, string(b[1:]))
+			case '-':
+				fmt.Println("should capture errors")
 			}
-			fmt.Println("Default Case")
+
+		}
+
+		//we have arguments, time to answer
+
+		if len(args) > 0 {
+			fmt.Println("has commands", args)
+			if len(args) == 4 {
+				conn.Write([]byte("+OK\r\n"))
+			}
 		}
 	}
 }
@@ -110,6 +121,7 @@ func parseInt(b []byte) (int, bool) {
 	var n int
 	var sign bool
 	var i int
+
 	if len(b) > 0 && b[0] == '-' {
 		sign = true
 		i++
