@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -57,21 +58,24 @@ func (w *Writer) WriteInline(s string) {
 	fmt.Fprintf(&w.w, "+%s\r\n", toInline(s))
 }
 
+//commands := &map[string]bool{""}
+
 func handleClient(conn net.Conn, map_con *map[net.Conn]bool, items *map[string][]byte) {
 
 	reader := bufio.NewReader(conn)
 
-	//writer := bufio.NewWriter(conn)
+	//var commands []Command
 
-	var args []string
+	//handle client handles bulk array of messages (most of the time)
+
+	//fmt.Print(string(buf[:n]))
 
 	for {
+		//fmt.Println("whole message", string(b))
 
-		b, err := reader.ReadBytes('\n')
+		commands, err := readRESP(reader)
 
-		//m, _ := reader.ReadString('\n')
-
-		fmt.Println(b, string(b))
+		fmt.Print(commands)
 
 		if err != nil {
 			if err.Error() != "EOF" {
@@ -79,39 +83,77 @@ func handleClient(conn net.Conn, map_con *map[net.Conn]bool, items *map[string][
 			}
 			break
 		}
+	}
+}
 
-		//conn.Write([]byte("+PONG\r\n"))
+func readRESP(reader *bufio.Reader) ([]Command, error) {
 
-		//fmt.Println()
+	buf := make([]byte, 512)
 
-		if len(b) > 0 {
-			switch b[0] {
-			default:
-				args = append(args, string(b))
-			case '$':
-				n, _ := parseInt([]byte{b[1]})
-				fmt.Println("Captured dollar sign, potentially can know the size of the buffer", n)
-			case '*':
-				marks := make([]int, 0, 16)
-				fmt.Println(marks)
-			case '+':
-				//simple string
-				args = append(args, string(b[1:]))
-			case '-':
-				fmt.Println("should capture errors")
+	n, err := reader.Read(buf)
+
+	if err != nil {
+		return []Command{}, nil
+	}
+
+	switch buf[0] {
+	case '*':
+		//handle bulk array *4\r\n$3\r\nSET...
+		for i := 0; i < n; i++ {
+			if buf[i] == '\n' && buf[i-1] != '\r' {
+				panic("Incorrect Format")
 			}
 
-		}
+			if buf[i] == '\r' {
+				line := buf[:i-1]
 
-		//we have arguments, time to answer
+				fmt.Println(line)
 
-		if len(args) > 0 {
-			fmt.Println("has commands", args)
-			if len(args) == 4 {
-				conn.Write([]byte("+OK\r\n"))
+				switch line[0] {
+
+				case '$':
+					fmt.Print("handle bulk string")
+					//gotta find out the size
+					//welp, let's ASSUME the digit is 1 byte long
+
+					str_size, _ := parseInt([]byte{line[1]})
+
+					command_arr := make([]byte, str_size)
+
+					for j := 0; j < str_size; j++ {
+						command_arr = append(command_arr, line[j])
+					}
+
+				}
 			}
 		}
 	}
+
+	return []Command{}, nil
+
+}
+
+func readBulkString(line string, reader *bufio.Reader) (string, error) {
+
+	length, err := strconv.Atoi(line[1:])
+
+	if err != nil {
+		return "", err
+	}
+
+	if length == -1 {
+		return "", nil
+	}
+
+	bulk := make([]byte, length+2)
+
+	_, err = reader.Read(bulk)
+
+	if err != nil {
+		return "", err
+	}
+
+	return string(bulk[:length]), nil
 }
 
 func parseInt(b []byte) (int, bool) {
@@ -156,11 +198,6 @@ func toInline(s string) string {
 		}
 		return r
 	}, s)
-}
-
-type CommandArg struct {
-	Type  string
-	Value string
 }
 
 type Writer struct {
