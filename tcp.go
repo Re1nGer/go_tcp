@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 	"unicode"
 )
@@ -75,7 +74,22 @@ func handleClient(conn net.Conn, map_con *map[net.Conn]bool, items *map[string][
 
 		commands, err := readRESP(reader)
 
-		fmt.Print(commands)
+		for _, el := range commands.args {
+			//for now just ignore CLIENT SETINFO bulshit
+			fmt.Println(el, len(el), el == "PING")
+
+			if el == "redis-py" {
+				conn.Write([]byte("+OK\r\n"))
+			}
+
+			if el == "5.0.4" {
+				conn.Write([]byte("+OK\r\n"))
+			}
+
+			if el == "PING" {
+				conn.Write([]byte("+PONG\r\n"))
+			}
+		}
 
 		if err != nil {
 			if err.Error() != "EOF" {
@@ -86,74 +100,36 @@ func handleClient(conn net.Conn, map_con *map[net.Conn]bool, items *map[string][
 	}
 }
 
-func readRESP(reader *bufio.Reader) ([]Command, error) {
+func readRESP(reader *bufio.Reader) (Command, error) {
+
+	res := Command{}
 
 	buf := make([]byte, 512)
 
 	n, err := reader.Read(buf)
 
 	if err != nil {
-		return []Command{}, nil
+		return Command{}, nil
 	}
 
 	switch buf[0] {
 	case '*':
 		//handle bulk array *4\r\n$3\r\nSET...
-		for i := 0; i < n; i++ {
-			if buf[i] == '\n' && buf[i-1] != '\r' {
-				panic("Incorrect Format")
+		command := string(buf[:n])
+
+		arr := strings.Split(command, "\r\n")
+
+		fmt.Println(len(arr))
+		for _, el := range arr {
+			if len(el) > 0 && (el[0] == '*' || el[0] == '$') {
+				continue
 			}
-
-			if buf[i] == '\r' {
-				line := buf[:i-1]
-
-				fmt.Println(line)
-
-				switch line[0] {
-
-				case '$':
-					fmt.Print("handle bulk string")
-					//gotta find out the size
-					//welp, let's ASSUME the digit is 1 byte long
-
-					str_size, _ := parseInt([]byte{line[1]})
-
-					command_arr := make([]byte, str_size)
-
-					for j := 0; j < str_size; j++ {
-						command_arr = append(command_arr, line[j])
-					}
-
-				}
-			}
+			res.args = append(res.args, el)
 		}
 	}
 
-	return []Command{}, nil
+	return res, nil
 
-}
-
-func readBulkString(line string, reader *bufio.Reader) (string, error) {
-
-	length, err := strconv.Atoi(line[1:])
-
-	if err != nil {
-		return "", err
-	}
-
-	if length == -1 {
-		return "", nil
-	}
-
-	bulk := make([]byte, length+2)
-
-	_, err = reader.Read(bulk)
-
-	if err != nil {
-		return "", err
-	}
-
-	return string(bulk[:length]), nil
 }
 
 func parseInt(b []byte) (int, bool) {
@@ -215,6 +191,6 @@ type Reader struct {
 }
 
 type Command struct {
-	args [][]byte
+	args []string
 	Raw  []byte
 }
