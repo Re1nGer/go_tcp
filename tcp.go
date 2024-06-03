@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -46,7 +47,7 @@ func main() {
 			panic(err)
 		}
 
-		go handleClient(conn, &map_con, &items)
+		go handleClient(conn, &map_con, items)
 
 		//defer conn.Close()
 		//fmt.Print(res)
@@ -59,7 +60,7 @@ func (w *Writer) WriteInline(s string) {
 
 //commands := &map[string]bool{""}
 
-func handleClient(conn net.Conn, map_con *map[net.Conn]bool, items *map[string][]byte) {
+func handleClient(conn net.Conn, map_con *map[net.Conn]bool, items map[string][]byte) {
 
 	reader := bufio.NewReader(conn)
 
@@ -74,10 +75,11 @@ func handleClient(conn net.Conn, map_con *map[net.Conn]bool, items *map[string][
 
 		commands, err := readRESP(reader)
 
-		for _, el := range commands.args {
-			//for now just ignore CLIENT SETINFO bulshit
-			fmt.Println(el, len(el), el == "PING")
+		for idx, el := range commands.args {
 
+			fmt.Println(commands.args)
+
+			//for now just ignore CLIENT SETINFO bulshit
 			if el == "redis-py" {
 				conn.Write([]byte("+OK\r\n"))
 			}
@@ -88,6 +90,43 @@ func handleClient(conn net.Conn, map_con *map[net.Conn]bool, items *map[string][
 
 			if el == "PING" {
 				conn.Write([]byte("+PONG\r\n"))
+			}
+
+			if el == "EXISTS" {
+				counter := 0
+				for i := range len(commands.args) - 1 {
+					_, ok := items[commands.args[i+1]]
+
+					if ok {
+						counter += 1
+					}
+
+					counter_str := strconv.Itoa(counter)
+
+					conn.Write([]byte(":" + counter_str + "\r\n"))
+				}
+
+			}
+
+			if el == "GET" {
+				key := commands.args[idx+1]
+				val, ok := items[key]
+				if ok {
+					ans := "+" + string(val) + "\r\n"
+					conn.Write([]byte(ans))
+				} else {
+					conn.Write([]byte("$-1\r\n"))
+				}
+			}
+
+			if el == "SET" {
+				if idx+1 < len(commands.args) {
+					key := commands.args[idx+1]
+					items[key] = []byte(commands.args[idx+2])
+					conn.Write([]byte("+OK\r\n"))
+				} else {
+					conn.Write([]byte("-Invalid command\r\n"))
+				}
 			}
 		}
 
