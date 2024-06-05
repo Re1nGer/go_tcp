@@ -156,7 +156,6 @@ func readRESP(reader *bufio.Reader) (Command, error) {
 
 		arr := strings.Split(command, "\r\n")
 
-		fmt.Println(len(arr))
 		for _, el := range arr {
 			if len(el) > 0 && (el[0] == '*' || el[0] == '$') {
 				continue
@@ -192,110 +191,6 @@ func parseInt(b []byte) (int, bool) {
 	}
 	return n, true
 }
-
-/* func (rd *Reader) readCommands(leftover *int) ([]Command, error) {
-
-	var cmds []Command
-
-		marks := make([]int, 0, 16)
-		for i := 1; i < len(b); i++ {
-			if b[i] == '\n' {
-				if b[i-1] != '\r' {
-					return nil, errInvalidMultiBulkLength
-				}
-				count, ok := parseInt(b[1 : i-1])
-				if !ok || count <= 0 {
-					return nil, errInvalidMultiBulkLength
-				}
-				marks = marks[:0]
-				for j := 0; j < count; j++ {
-					// read bulk length
-					i++
-					if i < len(b) {
-						if b[i] != '$' {
-							return nil, &errProtocol{"expected '$', got '" +
-								string(b[i]) + "'"}
-						}
-						si := i
-						for ; i < len(b); i++ {
-							if b[i] == '\n' {
-								if b[i-1] != '\r' {
-									return nil, errInvalidBulkLength
-								}
-								size, ok := parseInt(b[si+1 : i-1])
-								if !ok || size < 0 {
-									return nil, errInvalidBulkLength
-								}
-								if i+size+2 >= len(b) {
-									// not ready
-									break outer2
-								}
-								if b[i+size+2] != '\n' ||
-									b[i+size+1] != '\r' {
-									return nil, errInvalidBulkLength
-								}
-								i++
-								marks = append(marks, i, i+size)
-								i += size + 1
-								break
-							}
-						}
-					}
-				}
-				if len(marks) == count*2 {
-					var cmd Command
-					if rd.rd != nil {
-						// make a raw copy of the entire command when
-						// there's a underlying reader.
-						cmd.Raw = append([]byte(nil), b[:i+1]...)
-					} else {
-						// just assign the slice
-						cmd.Raw = b[:i+1]
-					}
-					cmd.Args = make([][]byte, len(marks)/2)
-					// slice up the raw command into the args based on
-					// the recorded marks.
-					for h := 0; h < len(marks); h += 2 {
-						cmd.Args[h/2] = cmd.Raw[marks[h]:marks[h+1]]
-					}
-					cmds = append(cmds, cmd)
-					b = b[i+1:]
-					if len(b) > 0 {
-						goto next
-					} else {
-						goto done
-					}
-				}
-			}
-		}
-	if leftover != nil {
-		*leftover = rd.end - rd.start
-	}
-	if len(cmds) > 0 {
-		return cmds, nil
-	}
-	if rd.rd == nil {
-		return nil, errIncompleteCommand
-	}
-	if rd.end == len(rd.buf) {
-		// at the end of the buffer.
-		if rd.start == rd.end {
-			// rewind the to the beginning
-			rd.start, rd.end = 0, 0
-		} else {
-			// must grow the buffer
-			newbuf := make([]byte, len(rd.buf)*2)
-			copy(newbuf, rd.buf)
-			rd.buf = newbuf
-		}
-	}
-	n, err := rd.rd.Read(rd.buf[rd.end:])
-	if err != nil {
-		return nil, err
-	}
-	rd.end += n
-	return rd.readCommands(leftover)
-} */
 
 func (wr *Writer) writeSimpleString(s string) {
 	wr.b = append(wr.b, '+')
