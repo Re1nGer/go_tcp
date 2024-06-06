@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func main() {
@@ -23,9 +24,9 @@ func main() {
 
 	fmt.Println("Server is listening on port 6379")
 
-	map_con := make(map[net.Conn]bool)
-
 	items := make(map[string][]byte)
+
+	time := make(map[string]int64)
 
 	for {
 		// Accept incoming connections
@@ -46,7 +47,7 @@ func main() {
 			panic(err)
 		}
 
-		go handleClient(conn, &map_con, items)
+		go handleClient(conn, items, time)
 
 		//defer conn.Close()
 		//fmt.Print(res)
@@ -55,7 +56,7 @@ func main() {
 
 //commands := &map[string]bool{""}
 
-func handleClient(conn net.Conn, map_con *map[net.Conn]bool, items map[string][]byte) {
+func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]int64) {
 
 	reader := bufio.NewReader(conn)
 
@@ -118,10 +119,29 @@ func handleClient(conn net.Conn, map_con *map[net.Conn]bool, items map[string][]
 			}
 
 			if el == "SET" {
-				if idx+1 < len(commands.args) {
+				if idx+2 < len(commands.args) {
 					key := commands.args[idx+1]
 					items[key] = []byte(commands.args[idx+2])
 					conn.Write([]byte("+OK\r\n"))
+				} else {
+					conn.Write([]byte("-Invalid command\r\n"))
+				}
+			}
+
+			if el == "SETEX" {
+				if idx+3 < len(commands.args) {
+					key := commands.args[idx+1]
+
+					seconds, _ := strconv.Atoi(commands.args[idx+2])
+
+					val := commands.args[idx+3]
+
+					items[key] = []byte(val)
+
+					time_map[key] = time.Now().Unix() + int64(seconds)
+
+					conn.Write([]byte("+OK\r\n"))
+
 				} else {
 					conn.Write([]byte("-Invalid command\r\n"))
 				}
@@ -149,19 +169,17 @@ func readRESP(reader *bufio.Reader) (Command, error) {
 		return Command{}, nil
 	}
 
-	switch buf[0] {
-	case '*':
-		//handle bulk array *4\r\n$3\r\nSET...
-		command := string(buf[:n])
+	//handle bulk array *4\r\n$3\r\nSET...
 
-		arr := strings.Split(command, "\r\n")
+	command := string(buf[:n])
 
-		for _, el := range arr {
-			if len(el) > 0 && (el[0] == '*' || el[0] == '$') {
-				continue
-			}
-			res.args = append(res.args, el)
+	arr := strings.Split(command, "\r\n")
+
+	for _, el := range arr {
+		if len(el) > 0 && (el[0] == '*' || el[0] == '$') {
+			continue
 		}
+		res.args = append(res.args, el)
 	}
 
 	return res, nil
