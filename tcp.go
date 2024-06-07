@@ -143,6 +143,29 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 				}
 			}
 
+			if el == "DEL" {
+				counter := 0
+
+				for _, el := range commands.args[1:] {
+					_, ok := items[el]
+					delete(items, el)
+
+					if ok {
+						counter += 1
+					}
+				}
+				c_s := strconv.Itoa(counter)
+
+				byte_res := make([]byte, 0)
+
+				byte_res = append(byte_res, ':')
+				byte_res = append(byte_res, c_s...)
+				byte_res = append(byte_res, '\r', '\n')
+
+				conn.Write(byte_res)
+			}
+
+			//hasn't been checked yet
 			if el == "SETEX" {
 				if idx+3 < len(commands.args) {
 
