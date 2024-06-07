@@ -88,6 +88,21 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 				conn.Write([]byte("+PONG\r\n"))
 			}
 
+			if el == "ECHO" {
+				if idx+1 < len(commands.args) {
+					echo_val := commands.args[idx+1]
+					ans_arr := make([]byte, 0)
+					ans_arr = append(ans_arr, '$')
+					ans_arr = strconv.AppendInt(ans_arr, int64(len(echo_val)), 10)
+					ans_arr = append(ans_arr, '\r', '\n')
+					ans_arr = append(ans_arr, echo_val...)
+					ans_arr = append(ans_arr, '\r', '\n')
+					conn.Write(ans_arr)
+				} else {
+					conn.Write([]byte("-Invalid command\r\n"))
+				}
+			}
+
 			if el == "EXISTS" {
 				counter := 0
 				for i := range len(commands.args) - 1 {
@@ -104,28 +119,15 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 				}
 			}
 
-			if el == "ECHO" {
-				if idx+1 < len(commands.args) {
-					echo_val := commands.args[idx+1]
-					ans_arr := make([]byte, 0)
-					ans_arr = append(ans_arr, '$')
-					ans_arr = strconv.AppendInt(ans_arr, int64(len(echo_val)), 10)
-					ans_arr = append(ans_arr, '\r', '\n')
-					ans_arr = append(ans_arr, echo_val...)
-					ans_arr = append(ans_arr, '\r', '\n')
-					fmt.Println(string(ans_arr))
-					conn.Write(ans_arr)
-				} else {
-					conn.Write([]byte("-Invalid command\r\n"))
-				}
-			}
-
 			if el == "GET" {
 				key := commands.args[idx+1]
 				val, ok := items[key]
 				if ok {
-					ans := "+" + string(val) + "\r\n"
-					conn.Write([]byte(ans))
+					ans_arr := make([]byte, 0)
+					ans_arr = append(ans_arr, '+')
+					ans_arr = append(ans_arr, string(val)...)
+					ans_arr = append(ans_arr, '\r', '\n')
+					conn.Write(ans_arr)
 				} else {
 					conn.Write([]byte("$-1\r\n"))
 				}
