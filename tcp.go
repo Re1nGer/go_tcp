@@ -89,9 +89,7 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 			}
 
 			if el == "EXISTS" {
-
 				counter := 0
-
 				for i := range len(commands.args) - 1 {
 
 					_, ok := items[commands.args[i+1]]
@@ -104,7 +102,22 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 
 					conn.Write([]byte(":" + counter_str + "\r\n"))
 				}
+			}
 
+			if el == "ECHO" {
+				if idx+1 < len(commands.args) {
+					echo_val := commands.args[idx+1]
+					ans_arr := make([]byte, 0)
+					ans_arr = append(ans_arr, '$')
+					ans_arr = strconv.AppendInt(ans_arr, int64(len(echo_val)), 10)
+					ans_arr = append(ans_arr, '\r', '\n')
+					ans_arr = append(ans_arr, echo_val...)
+					ans_arr = append(ans_arr, '\r', '\n')
+					fmt.Println(string(ans_arr))
+					conn.Write(ans_arr)
+				} else {
+					conn.Write([]byte("-Invalid command\r\n"))
+				}
 			}
 
 			if el == "GET" {
@@ -130,6 +143,7 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 
 			if el == "SETEX" {
 				if idx+3 < len(commands.args) {
+
 					key := commands.args[idx+1]
 
 					seconds, _ := strconv.Atoi(commands.args[idx+2])
