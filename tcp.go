@@ -84,11 +84,11 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 				conn.Write([]byte("+OK\r\n"))
 			}
 
-			if el == "PING" {
+			if el == "ping" {
 				conn.Write([]byte("+PONG\r\n"))
 			}
 
-			if el == "ECHO" {
+			if el == "echo" {
 				if idx+1 < len(commands.args) {
 					echo_val := commands.args[idx+1]
 					ans_arr := make([]byte, 0)
@@ -103,7 +103,7 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 				}
 			}
 
-			if el == "EXISTS" {
+			if el == "exists" {
 				counter := 0
 				for i := range len(commands.args) - 1 {
 
@@ -119,7 +119,7 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 				}
 			}
 
-			if el == "GET" {
+			if el == "get" {
 				key := commands.args[idx+1]
 				val, ok := items[key]
 				if ok {
@@ -133,7 +133,7 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 				}
 			}
 
-			if el == "SET" {
+			if el == "set" {
 				if idx+2 < len(commands.args) {
 					key := commands.args[idx+1]
 					items[key] = []byte(commands.args[idx+2])
@@ -143,7 +143,7 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 				}
 			}
 
-			if el == "DEL" {
+			if el == "del" {
 				counter := 0
 
 				for _, el := range commands.args[1:] {
@@ -166,7 +166,7 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 			}
 
 			//hasn't been checked yet
-			if el == "SETEX" {
+			if el == "setex" {
 				if idx+3 < len(commands.args) {
 
 					key := commands.args[idx+1]
@@ -215,10 +215,10 @@ func readRESP(reader *bufio.Reader) (Command, error) {
 	arr := strings.Split(command, "\r\n")
 
 	for _, el := range arr {
-		if len(el) > 0 && (el[0] == '*' || el[0] == '$') {
+		if len(el) > 0 && (el[0] == '*' || el[0] == '$' || el[0] == '\r' || el[0] == '\n') || el == "" {
 			continue
 		}
-		res.args = append(res.args, el)
+		res.args = append(res.args, strings.ToLower(el))
 	}
 
 	return res, nil
