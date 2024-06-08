@@ -154,12 +154,13 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 						counter += 1
 					}
 				}
-				c_s := strconv.Itoa(counter)
 
 				byte_res := make([]byte, 0)
 
+				byte_res = appendPrefix(byte_res, ':', int64(counter))
+
 				byte_res = append(byte_res, ':')
-				byte_res = append(byte_res, c_s...)
+
 				byte_res = append(byte_res, '\r', '\n')
 
 				conn.Write(byte_res)
@@ -226,6 +227,15 @@ func readRESP(reader *bufio.Reader) (Command, error) {
 	}
 
 	return res, nil
+}
+
+func appendPrefix(b []byte, c byte, n int64) []byte {
+	if n >= 0 && n <= 9 {
+		return append(b, c, byte('0'+n), '\r', '\n')
+	}
+	b = append(b, c)
+	b = strconv.AppendInt(b, n, 10)
+	return append(b, '\r', '\n')
 }
 
 func isValidCommand(command string) bool {
