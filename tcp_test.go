@@ -55,3 +55,22 @@ func TestReadRESP_EchoCommand(t *testing.T) {
 		t.Errorf("Unexpected command: %v, args: %v", cmd, cmd.args)
 	}
 }
+
+func TestReadRESP_GetCommand(t *testing.T) {
+	// Create a buffer with a simple command
+	data := []byte("*1\r\n$3\r\nGET\r\n$8\r\nTESTITEM\r\n")
+	reader := bufio.NewReader(bytes.NewReader(data))
+
+	// Call the function
+	cmd, err := readRESP(reader)
+
+	// Assert no error and expected command/argument
+	if err != nil {
+		t.Errorf("Error reading RESP: %v", err)
+		return
+	}
+
+	if cmd.args[0] != "get" || len(cmd.args) != 2 || cmd.args[1] != "TESTITEM" {
+		t.Errorf("Unexpected command: %v, args: %v", cmd, cmd.args)
+	}
+}

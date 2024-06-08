@@ -218,11 +218,28 @@ func readRESP(reader *bufio.Reader) (Command, error) {
 		if len(el) > 0 && (el[0] == '*' || el[0] == '$' || el[0] == '\r' || el[0] == '\n') || el == "" {
 			continue
 		}
-		res.args = append(res.args, strings.ToLower(el))
+		if isValidCommand(el) {
+			res.args = append(res.args, strings.ToLower(el))
+		} else { // it means it's an argument
+			res.args = append(res.args, el)
+		}
 	}
 
 	return res, nil
+}
 
+func isValidCommand(command string) bool {
+	return caseInvariant(command, "SET") ||
+		caseInvariant(command, "GET") ||
+		caseInvariant(command, "DEL") ||
+		caseInvariant(command, "EXISTS") ||
+		caseInvariant(command, "PING") ||
+		caseInvariant(command, "SETEX") ||
+		caseInvariant(command, "ECHO")
+}
+
+func caseInvariant(s string, c string) bool {
+	return strings.ToLower(s) == c || s == c
 }
 
 func parseInt(b []byte) (int, bool) {
