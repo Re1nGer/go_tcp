@@ -3,15 +3,63 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
 	"time"
 )
 
+type Server struct {
+	listenAddr string
+	ln         net.Listener
+	rd         Reader
+	wr         Writer
+	conMap     map[*net.Conn]bool
+}
+
+func NewServer(listenAddr string, conn net.Conn, ln net.Listener) *Server {
+	return &Server{
+		listenAddr: listenAddr,
+		rd:         *NewReader(conn),
+		wr:         *NewWriter(conn),
+		ln:         ln,
+		conMap:     map[*net.Conn]bool{},
+	}
+}
+
+// we may pass the channel to notify if there are any errors trying to listen to port over tcp
+func (s *Server) Serve(ch chan error) (net.Listener, error) {
+	ln, err := net.Listen("tcp", s.listenAddr)
+
+	if err != nil && ch != nil {
+		ch <- err
+		return nil, err
+	}
+
+	s.ln = ln
+
+	return s.ln, nil
+}
+
+func NewReader(r io.Reader) *Reader {
+	return &Reader{
+		rd:  bufio.NewReader(r),
+		buf: make([]byte, 1024), //for now let's just ASSUME it's gonna be enough
+	}
+}
+
+func NewWriter(w io.Writer) *Writer {
+	return &Writer{
+		w: bufio.NewWriter(w),
+		b: make([]byte, 1024),
+	}
+}
+
 func main() {
 	// Listen for incoming connections
 	listener, err := net.Listen("tcp", "localhost:6379")
+
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
@@ -59,12 +107,6 @@ func main() {
 func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]int64) {
 
 	reader := bufio.NewReader(conn)
-
-	//var commands []Command
-
-	//handle client handles bulk array of messages (most of the time)
-
-	//fmt.Print(string(buf[:n]))
 
 	for {
 		//fmt.Println("whole message", string(b))
@@ -296,18 +338,15 @@ func (wr *Writer) writeSimpleString(s string) {
 } */
 
 type Writer struct {
-	w   bufio.Writer
+	w   *bufio.Writer
 	b   []byte
 	err error
 }
 
 // buffers need to be reset after reading it to the end
 type Reader struct {
-	rd    *bufio.Reader
-	buf   []byte
-	start int
-	end   int
-	cmds  []Command
+	rd  *bufio.Reader
+	buf []byte
 }
 
 type Command struct {
