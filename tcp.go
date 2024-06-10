@@ -37,6 +37,7 @@ func (s *Server) Serve(ch chan error) (net.Listener, error) {
 		return nil, err
 	}
 
+	//gotta handle concurrency issues here
 	s.ln = ln
 
 	return s.ln, nil
