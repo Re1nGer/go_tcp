@@ -29,6 +29,7 @@ func NewServer(listenAddr string, conn net.Conn, ln net.Listener) *Server {
 }
 
 // we may pass the channel to notify if there are any errors trying to listen to port over tcp
+// TODO: add a custom handler
 func (s *Server) Serve(ch chan error) (net.Listener, error) {
 	ln, err := net.Listen("tcp", s.listenAddr)
 
