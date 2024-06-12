@@ -7,42 +7,137 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"time"
 )
 
+// this is incorrect because each connection should have its reader and writer in conn struct
+// but Server struct should have a map of connections, each connection is treated separately
 type Server struct {
 	listenAddr string
+	conMap     map[*conn]bool
 	ln         net.Listener
-	rd         Reader
-	wr         Writer
-	conMap     map[*net.Conn]bool
+	handler    func(c Conn, cmd Command)
 }
 
-func NewServer(listenAddr string, conn net.Conn, ln net.Listener) *Server {
+type conn struct {
+	rd   Reader
+	wr   Writer
+	conn net.Conn
+	cmds Command
+}
+
+type Conn interface {
+	WriteError(msg string)
+	// WriteString writes a string to the client.
+	WriteString(str string)
+	// WriteBulk writes bulk bytes to the client.
+	WriteBulk(bulk []byte)
+	// WriteBulkString writes a bulk string to the client.
+	WriteBulkString(bulk string)
+	// WriteInt writes an integer to the client.
+	WriteInt(num int)
+}
+
+func (c conn) WriteBulk(bulk []byte)       {}
+func (c conn) WriteBulkString(bulk string) {}
+func (c conn) WriteInt(num int)            {}
+func (c conn) WriteError(msg string)       {}
+func (c conn) WriteString(str string)      {}
+
+func NewServer(listenAddr string, ln net.Listener) *Server {
 	return &Server{
 		listenAddr: listenAddr,
-		rd:         *NewReader(conn),
-		wr:         *NewWriter(conn),
 		ln:         ln,
-		conMap:     map[*net.Conn]bool{},
+		conMap:     make(map[*conn]bool),
 	}
+}
+
+func newServer() *Server {
+	return &Server{
+		conMap: make(map[*conn]bool),
+	}
+}
+
+func NewServerNetwork(addr string, handler func(conn Conn, cmd Command)) *Server {
+	if handler == nil {
+		panic("handler is nil")
+	}
+	s := newServer()
+	s.handler = handler
+	s.listenAddr = addr
+	return s
+}
+
+func ListenAndServe(addr string, handler func(conn Conn, cmd Command)) error {
+	return ListenAndServeNetwork(addr, handler)
+}
+
+func (s *Server) ListenAndServe() error {
+	return s.Serve(nil)
+}
+
+func ListenAndServeNetwork(addr string, handler func(c Conn, cmd Command)) error {
+	return NewServerNetwork(addr, handler).ListenAndServe()
 }
 
 // we may pass the channel to notify if there are any errors trying to listen to port over tcp
 // TODO: add a custom handler
-func (s *Server) Serve(ch chan error) (net.Listener, error) {
+func (s *Server) Serve(ch chan error) error {
 	ln, err := net.Listen("tcp", s.listenAddr)
-
+	fmt.Println("Listen on port", s.listenAddr)
 	if err != nil && ch != nil {
 		ch <- err
-		return nil, err
+		return err
 	}
 
 	//gotta handle concurrency issues here
 	s.ln = ln
 
-	return s.ln, nil
+	return serve(s)
 }
+
+func serve(s *Server) error {
+	//for now let's just attempt to close the listener this way
+	defer s.ln.Close()
+
+	for {
+		ln, err := s.ln.Accept()
+		if err != nil {
+			return err
+		}
+
+		con := &conn{
+			wr: *NewWriter(ln),
+			rd: *NewReader(ln), //filling in buffers, all incoming messages are in rd reader
+		}
+
+		s.conMap[con] = true
+
+		//handle requets in a separate goroutine
+		go handle(s, *con)
+	}
+}
+
+func handle(s *Server, c conn) error {
+	commands, err := readRESP(&c.rd)
+	if err != nil {
+		//write to the client
+		c.wr.WriteError("ERR " + err.Error()) //write error
+		c.wr.Flush()
+		return err
+	}
+
+	c.cmds = commands
+
+	s.handler(c, commands)
+
+	err = c.wr.Flush()
+	if err != nil {
+		return err
+	}
+	return err
+}
+
+// handler which allows for users
 
 func NewReader(r io.Reader) *Reader {
 	return &Reader{
@@ -58,7 +153,19 @@ func NewWriter(w io.Writer) *Writer {
 	}
 }
 
-func main() {
+func (wr *Writer) Flush() error {
+	_, wr.err = wr.w.Write(wr.b)
+	wr.b = wr.b[:0] //emptying the slice
+	return wr.err
+}
+
+func (wr *Writer) WriteError(err string) {
+	wr.b = append(wr.b, '-')
+	wr.b = append(wr.b, []byte(err)...)
+	wr.b = append(wr.b, '\r', '\n')
+}
+
+/* func main() {
 	// Listen for incoming connections
 	listener, err := net.Listen("tcp", "localhost:6379")
 
@@ -102,18 +209,25 @@ func main() {
 		//defer conn.Close()
 		//fmt.Print(res)
 	}
+} */
+
+func main() {
+	err := ListenAndServe("localhost:6379", func(conn Conn, cmd Command) {
+		fmt.Print(cmd)
+	})
+
+	if err != nil {
+		panic(err)
+	}
 }
 
 //commands := &map[string]bool{""}
 
-func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]int64) {
-
-	reader := bufio.NewReader(conn)
+func handleClient(conn net.Conn, items map[string][]byte) {
 
 	for {
-		//fmt.Println("whole message", string(b))
 
-		commands, err := readRESP(reader)
+		commands, err := readRESP(&Reader{})
 
 		for idx, el := range commands.args {
 
@@ -210,26 +324,26 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 				conn.Write(byte_res)
 			}
 
-			//hasn't been checked yet
-			if el == "setex" {
-				if idx+3 < len(commands.args) {
+			/* 			//hasn't been checked yet
+			   			if el == "setex" {
+			   				if idx+3 < len(commands.args) {
 
-					key := commands.args[idx+1]
+			   					key := commands.args[idx+1]
 
-					seconds, _ := strconv.Atoi(commands.args[idx+2])
+			   					seconds, _ := strconv.Atoi(commands.args[idx+2])
 
-					val := commands.args[idx+3]
+			   					val := commands.args[idx+3]
 
-					items[key] = []byte(val)
+			   					items[key] = []byte(val)
 
-					time_map[key] = time.Now().Unix() + int64(seconds)
+			   					time_map[key] = time.Now().Unix() + int64(seconds)
 
-					conn.Write([]byte("+OK\r\n"))
+			   					conn.Write([]byte("+OK\r\n"))
 
-				} else {
-					conn.Write([]byte("-Invalid command\r\n"))
-				}
-			}
+			   				} else {
+			   					conn.Write([]byte("-Invalid command\r\n"))
+			   				}
+			   			} */
 		}
 
 		if err != nil {
@@ -241,13 +355,13 @@ func handleClient(conn net.Conn, items map[string][]byte, time_map map[string]in
 	}
 }
 
-func readRESP(reader *bufio.Reader) (Command, error) {
+func readRESP(r *Reader) (Command, error) {
 
 	res := Command{}
 
 	buf := make([]byte, 512)
 
-	n, err := reader.Read(buf)
+	n, err := r.rd.Read(buf)
 
 	if err != nil {
 		return Command{}, nil
