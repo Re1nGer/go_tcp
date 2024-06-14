@@ -19,8 +19,8 @@ type Server struct {
 }
 
 type conn struct {
-	rd   Reader
-	wr   Writer
+	rd   *Reader
+	wr   *Writer
 	conn net.Conn
 	cmds Command
 }
@@ -37,11 +37,12 @@ type Conn interface {
 	WriteInt(num int)
 }
 
+// this is a communication channel from client to our library
 func (c conn) WriteBulk(bulk []byte)       {}
 func (c conn) WriteBulkString(bulk string) {}
 func (c conn) WriteInt(num int)            {}
 func (c conn) WriteError(msg string)       {}
-func (c conn) WriteString(str string)      {}
+func (c conn) WriteString(str string)      { c.wr.WriteString(str) }
 
 func NewServer(listenAddr string, ln net.Listener) *Server {
 	return &Server{
@@ -106,8 +107,9 @@ func serve(s *Server) error {
 		}
 
 		con := &conn{
-			wr: *NewWriter(ln),
-			rd: *NewReader(ln), //filling in buffers, all incoming messages are in rd reader
+			conn: ln, //necessary to close connection or to get any kind of information about current connection
+			wr:   NewWriter(ln),
+			rd:   NewReader(ln), //filling in buffers, all incoming messages are in rd reader
 		}
 
 		s.conMap[con] = true
@@ -117,24 +119,41 @@ func serve(s *Server) error {
 	}
 }
 
-func handle(s *Server, c conn) error {
-	commands, err := readRESP(&c.rd)
-	if err != nil {
-		//write to the client
-		c.wr.WriteError("ERR " + err.Error()) //write error
-		c.wr.Flush()
-		return err
-	}
+func handle(s *Server, c conn) {
 
-	c.cmds = commands
+	defer func() {
+		c.conn.Close()
+	}()
 
-	s.handler(c, commands)
+	_ = func() error {
+		for {
 
-	err = c.wr.Flush()
-	if err != nil {
-		return err
-	}
-	return err
+			commands, err := readRESP(c.rd)
+
+			if err != nil {
+				//write to the client
+				fmt.Print("Error ?")
+				c.wr.WriteError("ERR " + err.Error()) //write error
+				c.wr.Flush()
+				return err
+			}
+
+			c.cmds = commands
+
+			s.handler(c, commands)
+
+			fmt.Println("Do we get to flushing ?")
+
+			//fmt.Println(string(c.wr.b), "Empty??")
+
+			err = c.wr.Flush()
+
+			if err != nil {
+				return err
+			}
+		}
+	}()
+
 }
 
 // handler which allows for users
@@ -146,10 +165,9 @@ func NewReader(r io.Reader) *Reader {
 	}
 }
 
-func NewWriter(w io.Writer) *Writer {
+func NewWriter(wr io.Writer) *Writer {
 	return &Writer{
-		w: bufio.NewWriter(w),
-		b: make([]byte, 1024),
+		w: wr,
 	}
 }
 
@@ -163,6 +181,13 @@ func (wr *Writer) WriteError(err string) {
 	wr.b = append(wr.b, '-')
 	wr.b = append(wr.b, []byte(err)...)
 	wr.b = append(wr.b, '\r', '\n')
+}
+
+func (wr *Writer) WriteString(s string) {
+	wr.b = append(wr.b, '+')
+	wr.b = append(wr.b, []byte(s)...)
+	wr.b = append(wr.b, '\r', '\n')
+	fmt.Println(string(wr.b))
 }
 
 /* func main() {
@@ -213,6 +238,18 @@ func (wr *Writer) WriteError(err string) {
 
 func main() {
 	err := ListenAndServe("localhost:6379", func(conn Conn, cmd Command) {
+
+		//items := make(map[string]string)
+
+		switch cmd.args[0] {
+		case "CLIENT":
+			fmt.Print("Hit client")
+			conn.WriteString("OK")
+		case "ping":
+			conn.WriteString("PONG")
+
+		}
+
 		fmt.Print(cmd)
 	})
 
@@ -359,17 +396,13 @@ func readRESP(r *Reader) (Command, error) {
 
 	res := Command{}
 
-	buf := make([]byte, 512)
+	buf := make([]byte, len(r.buf))
 
-	n, err := r.rd.Read(buf)
-
-	if err != nil {
-		return Command{}, nil
-	}
+	copy(buf, r.buf)
 
 	//handle bulk array *4\r\n$3\r\nSET...
 
-	command := string(buf[:n])
+	command := string(buf)
 
 	arr := strings.Split(command, "\r\n")
 
@@ -454,7 +487,7 @@ func (wr *Writer) writeSimpleString(s string) {
 } */
 
 type Writer struct {
-	w   *bufio.Writer
+	w   io.Writer
 	b   []byte
 	err error
 }
