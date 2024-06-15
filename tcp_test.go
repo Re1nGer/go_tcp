@@ -8,6 +8,7 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
+// test requires spinning up a real redis instance
 func TestSetGetWithRedis(t *testing.T) {
 	ctx := context.Background()
 	rdb := redis.NewClient(&redis.Options{
@@ -49,7 +50,7 @@ func TestReadRESP_EchoCommand(t *testing.T) {
 	reader.buf = reader.buf[:n]
 
 	// Call the function
-	cmd, err := readRESP(reader)
+	cmd, err := reader.readRESP()
 
 	// Assert no error and expected command/argument
 	if err != nil {

@@ -2,11 +2,13 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // this is incorrect because each connection should have its reader and writer in conn struct
@@ -16,6 +18,7 @@ type Server struct {
 	conMap     map[*conn]bool
 	ln         net.Listener
 	handler    func(c Conn, cmd Command)
+	mu         sync.Mutex
 }
 
 type conn struct {
@@ -35,6 +38,7 @@ type Conn interface {
 	WriteBulkString(bulk string)
 	// WriteInt writes an integer to the client.
 	WriteInt(num int)
+	WriteRaw(b []byte)
 }
 
 // this is a communication channel from client to our library
@@ -43,6 +47,7 @@ func (c conn) WriteBulkString(bulk string) {}
 func (c conn) WriteInt(num int)            {}
 func (c conn) WriteError(msg string)       {}
 func (c conn) WriteString(str string)      { c.wr.WriteString(str) }
+func (c conn) WriteRaw(b []byte)           { c.wr.WriteRaw(b) }
 
 func NewServer(listenAddr string, ln net.Listener) *Server {
 	return &Server{
@@ -63,8 +68,10 @@ func NewServerNetwork(addr string, handler func(conn Conn, cmd Command)) *Server
 		panic("handler is nil")
 	}
 	s := newServer()
+	s.mu.Lock()
 	s.handler = handler
 	s.listenAddr = addr
+	s.mu.Unlock()
 	return s
 }
 
@@ -91,7 +98,9 @@ func (s *Server) Serve(ch chan error) error {
 	}
 
 	//gotta handle concurrency issues here
+	s.mu.Lock()
 	s.ln = ln
+	s.mu.Unlock()
 
 	return serve(s)
 }
@@ -128,11 +137,11 @@ func handle(s *Server, c conn) {
 	_ = func() error {
 		for {
 
-			commands, err := readRESP(c.rd)
+			commands, err := c.rd.readRESP()
 
 			if err != nil {
 				//write to the client
-				fmt.Print("Error ?")
+				fmt.Print("Error ?", err)
 				c.wr.WriteError("ERR " + err.Error()) //write error
 				c.wr.Flush()
 				return err
@@ -187,7 +196,10 @@ func (wr *Writer) WriteString(s string) {
 	wr.b = append(wr.b, '+')
 	wr.b = append(wr.b, []byte(s)...)
 	wr.b = append(wr.b, '\r', '\n')
-	fmt.Println(string(wr.b))
+}
+
+func (wr *Writer) WriteRaw(b []byte) {
+	copy(wr.b, b)
 }
 
 /* func main() {
@@ -237,19 +249,33 @@ func (wr *Writer) WriteString(s string) {
 } */
 
 func main() {
+	var mu sync.RWMutex
+	items := make(map[string]string)
+
 	err := ListenAndServe("localhost:6379", func(conn Conn, cmd Command) {
-
-		//items := make(map[string]string)
-
 		switch cmd.args[0] {
 		case "CLIENT":
+
 			fmt.Print("Hit client")
 			conn.WriteString("OK")
 		case "ping":
 			conn.WriteString("PONG")
-
+		case "set":
+			key := cmd.args[1]
+			mu.Lock()
+			items[key] = cmd.args[2]
+			mu.Unlock()
+			conn.WriteString("OK")
+		case "get":
+			mu.RLock()
+			val, ok := items[cmd.args[1]]
+			mu.RUnlock()
+			if ok {
+				conn.WriteString(val)
+			} else {
+				conn.WriteRaw([]byte("$-1\r\n"))
+			}
 		}
-
 		fmt.Print(cmd)
 	})
 
@@ -264,7 +290,9 @@ func handleClient(conn net.Conn, items map[string][]byte) {
 
 	for {
 
-		commands, err := readRESP(&Reader{})
+		rd := NewReader(bytes.NewReader([]byte("test")))
+
+		commands, err := rd.readRESP()
 
 		for idx, el := range commands.args {
 
@@ -392,17 +420,23 @@ func handleClient(conn net.Conn, items map[string][]byte) {
 	}
 }
 
-func readRESP(r *Reader) (Command, error) {
+// had to refactor into something more efficient, using Split which uses regex is inefficient
+// TODO: provide some benchmarking for this
+func (r *Reader) readRESP() (Command, error) {
 
 	res := Command{}
 
-	buf := make([]byte, len(r.buf))
+	buf := make([]byte, 1024)
 
-	copy(buf, r.buf)
+	n, err := r.rd.Read(buf)
+
+	if err != nil {
+		return Command{}, err
+	}
 
 	//handle bulk array *4\r\n$3\r\nSET...
 
-	command := string(buf)
+	command := string(buf[:n])
 
 	arr := strings.Split(command, "\r\n")
 
