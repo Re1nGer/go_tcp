@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -17,7 +18,7 @@ type Server struct {
 	listenAddr string
 	conMap     map[*conn]bool
 	ln         net.Listener
-	handler    func(c Conn, cmd Command)
+	handler    func(c Conn, cmd C2)
 	mu         sync.Mutex
 }
 
@@ -25,7 +26,7 @@ type conn struct {
 	rd   *Reader
 	wr   *Writer
 	conn net.Conn
-	cmds Command
+	cmds C2
 }
 
 type Conn interface {
@@ -39,13 +40,15 @@ type Conn interface {
 	// WriteInt writes an integer to the client.
 	WriteInt(num int)
 	WriteRaw(b []byte)
+	WriteByte(b []byte)
 }
 
 // this is a communication channel from client to our library
 func (c conn) WriteBulk(bulk []byte)       {}
 func (c conn) WriteBulkString(bulk string) {}
-func (c conn) WriteInt(num int)            {}
+func (c conn) WriteInt(num int)            { c.wr.WriteInt(num) }
 func (c conn) WriteError(msg string)       {}
+func (c conn) WriteByte(b []byte)          { c.wr.WriteByte(b) }
 func (c conn) WriteString(str string)      { c.wr.WriteString(str) }
 func (c conn) WriteRaw(b []byte)           { c.wr.WriteRaw(b) }
 
@@ -63,7 +66,7 @@ func newServer() *Server {
 	}
 }
 
-func NewServerNetwork(addr string, handler func(conn Conn, cmd Command)) *Server {
+func NewServerNetwork(addr string, handler func(conn Conn, cmd C2)) *Server {
 	if handler == nil {
 		panic("handler is nil")
 	}
@@ -75,7 +78,7 @@ func NewServerNetwork(addr string, handler func(conn Conn, cmd Command)) *Server
 	return s
 }
 
-func ListenAndServe(addr string, handler func(conn Conn, cmd Command)) error {
+func ListenAndServe(addr string, handler func(conn Conn, cmd C2)) error {
 	return ListenAndServeNetwork(addr, handler)
 }
 
@@ -83,7 +86,7 @@ func (s *Server) ListenAndServe() error {
 	return s.Serve(nil)
 }
 
-func ListenAndServeNetwork(addr string, handler func(c Conn, cmd Command)) error {
+func ListenAndServeNetwork(addr string, handler func(c Conn, cmd C2)) error {
 	return NewServerNetwork(addr, handler).ListenAndServe()
 }
 
@@ -137,11 +140,10 @@ func handle(s *Server, c conn) {
 	_ = func() error {
 		for {
 
-			commands, err := c.rd.readRESP()
+			commands, err := c.rd.readRESP2()
 
 			if err != nil {
 				//write to the client
-				fmt.Print("Error ?", err)
 				c.wr.WriteError("ERR " + err.Error()) //write error
 				c.wr.Flush()
 				return err
@@ -150,10 +152,6 @@ func handle(s *Server, c conn) {
 			c.cmds = commands
 
 			s.handler(c, commands)
-
-			fmt.Println("Do we get to flushing ?")
-
-			//fmt.Println(string(c.wr.b), "Empty??")
 
 			err = c.wr.Flush()
 
@@ -198,85 +196,76 @@ func (wr *Writer) WriteString(s string) {
 	wr.b = append(wr.b, '\r', '\n')
 }
 
+func (wr *Writer) WriteByte(b []byte) {
+	wr.b = append(wr.b, '+')
+	wr.b = append(wr.b, b...)
+	wr.b = append(wr.b, '\r', '\n')
+}
+
+func (wr *Writer) WriteInt(i int) {
+	//wr.b = append(wr.b, ':')
+	if i >= 0 && i <= 9 {
+		wr.b = append(wr.b, ':', byte('0'+i), '\r', '\n')
+		return
+	}
+	wr.b = append(wr.b, ':')
+	wr.b = strconv.AppendInt(wr.b, int64(i), 10) //you cant just go ahead and append int
+	wr.b = append(wr.b, '\r', '\n')
+}
+
 func (wr *Writer) WriteRaw(b []byte) {
 	copy(wr.b, b)
 }
 
-/* func main() {
-	// Listen for incoming connections
-	listener, err := net.Listen("tcp", "localhost:6379")
-
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-	defer listener.Close()
-
-	//var m map[string]int
-
-	//m = make(map[string]int)
-
-	fmt.Println("Server is listening on port 6379")
-
-	items := make(map[string][]byte)
-
-	time := make(map[string]int64)
-
-	for {
-		// Accept incoming connections
-		conn, err := listener.Accept()
-		if err != nil {
-			fmt.Println("Error:", err)
-			continue
-		}
-
-		// Handle client connection in a goroutine
-		//go handleClient(conn)
-
-		//line := bufio.NewReader(conn)
-
-		//res, err := line.ReadBytes('\n')
-
-		if err != nil {
-			panic(err)
-		}
-
-		go handleClient(conn, items, time)
-
-		//defer conn.Close()
-		//fmt.Print(res)
-	}
-} */
-
 func main() {
 	var mu sync.RWMutex
-	items := make(map[string]string)
-
-	err := ListenAndServe("localhost:6379", func(conn Conn, cmd Command) {
-		switch cmd.args[0] {
-		case "CLIENT":
-
-			fmt.Print("Hit client")
+	items := make(map[string][]byte)
+	err := ListenAndServe("localhost:6379", func(conn Conn, cmd C2) {
+		fmt.Println(string(cmd.args[0]))
+		switch strings.ToLower(string(cmd.args[0])) {
+		case "client":
 			conn.WriteString("OK")
 		case "ping":
 			conn.WriteString("PONG")
 		case "set":
-			key := cmd.args[1]
 			mu.Lock()
-			items[key] = cmd.args[2]
+			items[string(cmd.args[1])] = cmd.args[2]
 			mu.Unlock()
 			conn.WriteString("OK")
 		case "get":
 			mu.RLock()
-			val, ok := items[cmd.args[1]]
+			val, ok := items[string(cmd.args[1])]
 			mu.RUnlock()
 			if ok {
-				conn.WriteString(val)
+				conn.WriteByte(val)
 			} else {
 				conn.WriteRaw([]byte("$-1\r\n"))
 			}
+		case "exists":
+			counter := 0
+			for i := range len(cmd.args) - 1 {
+				mu.RLock()
+				_, ok := items[string(cmd.args[i+1])]
+				mu.RUnlock()
+				if ok {
+					counter += 1
+				}
+				fmt.Println(counter)
+			}
+			conn.WriteInt(counter)
+		case "del":
+			counter := 0
+			for _, el := range cmd.args[1:] {
+				key := string(el)
+				_, ok := items[key]
+				delete(items, key)
+				if ok {
+					counter += 1
+				}
+				fmt.Println(counter)
+			}
+			conn.WriteInt(counter)
 		}
-		fmt.Print(cmd)
 	})
 
 	if err != nil {
@@ -426,7 +415,7 @@ func (r *Reader) readRESP() (Command, error) {
 
 	res := Command{}
 
-	buf := make([]byte, 1024)
+	buf := make([]byte, 512)
 
 	n, err := r.rd.Read(buf)
 
@@ -452,6 +441,57 @@ func (r *Reader) readRESP() (Command, error) {
 	}
 
 	return res, nil
+}
+
+type C2 struct {
+	args [][]byte
+	Raw  []byte
+}
+
+func (rd *Reader) readRESP2() (C2, error) {
+
+	b, err := rd.rd.ReadByte()
+
+	if err != nil {
+		return C2{}, err
+	}
+
+	var c C2
+
+	if b == '*' {
+		arg_counter, err := rd.rd.ReadBytes('\n')
+		if err != nil {
+			return C2{}, err
+		}
+
+		counter, ok := parseInt(arg_counter[:len(arg_counter)-2])
+
+		if !ok {
+			return C2{}, errors.New("couldn't parse number")
+		}
+
+		in := 0
+
+		c.args = make([][]byte, counter)
+
+		for {
+			line, err := rd.rd.ReadBytes('\n')
+
+			if err != nil {
+				break
+			}
+
+			if len(line) > 0 && line[0] != '$' {
+				c.args[in] = append(c.args[in], line[:len(line)-2]...)
+				in += 1
+			}
+			if counter == in {
+				break
+			}
+		}
+	}
+	return c, nil
+
 }
 
 func appendPrefix(b []byte, c byte, n int64) []byte {
