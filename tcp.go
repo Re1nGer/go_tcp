@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +9,30 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
+
+type C2 struct {
+	args [][]byte
+	Raw  []byte
+}
+
+type Writer struct {
+	w   io.Writer
+	b   []byte
+	err error
+}
+
+// buffers need to be reset after reading it to the end
+type Reader struct {
+	rd  *bufio.Reader
+	buf []byte
+}
+
+type Command struct {
+	args []string
+	Raw  []byte
+}
 
 // this is incorrect because each connection should have its reader and writer in conn struct
 // but Server struct should have a map of connections, each connection is treated separately
@@ -29,6 +51,11 @@ type conn struct {
 	cmds C2
 }
 
+type item struct {
+	item []byte
+	time time.Time
+}
+
 type Conn interface {
 	WriteError(msg string)
 	// WriteString writes a string to the client.
@@ -45,7 +72,7 @@ type Conn interface {
 
 // this is a communication channel from client to our library
 func (c conn) WriteBulk(bulk []byte)       {}
-func (c conn) WriteBulkString(bulk string) {}
+func (c conn) WriteBulkString(bulk string) { c.wr.WriteBulkString(bulk) }
 func (c conn) WriteInt(num int)            { c.wr.WriteInt(num) }
 func (c conn) WriteError(msg string)       {}
 func (c conn) WriteByte(b []byte)          { c.wr.WriteByte(b) }
@@ -203,7 +230,6 @@ func (wr *Writer) WriteByte(b []byte) {
 }
 
 func (wr *Writer) WriteInt(i int) {
-	//wr.b = append(wr.b, ':')
 	if i >= 0 && i <= 9 {
 		wr.b = append(wr.b, ':', byte('0'+i), '\r', '\n')
 		return
@@ -214,7 +240,20 @@ func (wr *Writer) WriteInt(i int) {
 }
 
 func (wr *Writer) WriteRaw(b []byte) {
-	copy(wr.b, b)
+	wr.b = append(wr.b, b...)
+}
+
+func (wr *Writer) WriteBulkString(s string) {
+	wr.b = append(wr.b, '$')
+	wr.b = strconv.AppendInt(wr.b, int64(len(s)), 10)
+	wr.b = append(wr.b, s...)
+	wr.b = append(wr.b, '\r', '\n')
+}
+
+func (wr *Writer) writeSimpleString(s string) {
+	wr.b = append(wr.b, '+')
+	wr.b = append(wr.b, s...)
+	wr.b = append(wr.b, '\r', '\n')
 }
 
 func main() {
@@ -225,6 +264,9 @@ func main() {
 		switch strings.ToLower(string(cmd.args[0])) {
 		case "client":
 			conn.WriteString("OK")
+		case "echo":
+			echo := string(cmd.args[1])
+			conn.WriteBulkString(echo)
 		case "ping":
 			conn.WriteString("PONG")
 		case "set":
@@ -273,142 +315,6 @@ func main() {
 	}
 }
 
-//commands := &map[string]bool{""}
-
-func handleClient(conn net.Conn, items map[string][]byte) {
-
-	for {
-
-		rd := NewReader(bytes.NewReader([]byte("test")))
-
-		commands, err := rd.readRESP()
-
-		for idx, el := range commands.args {
-
-			fmt.Println(commands.args)
-
-			//for now just ignore CLIENT SETINFO bulshit
-			if el == "redis-py" {
-				conn.Write([]byte("+OK\r\n"))
-			}
-
-			if el == "5.0.4" {
-				conn.Write([]byte("+OK\r\n"))
-			}
-
-			if el == "ping" {
-				conn.Write([]byte("+PONG\r\n"))
-			}
-
-			if el == "echo" {
-				if idx+1 < len(commands.args) {
-					echo_val := commands.args[idx+1]
-					ans_arr := make([]byte, 0)
-					ans_arr = append(ans_arr, '$')
-					ans_arr = strconv.AppendInt(ans_arr, int64(len(echo_val)), 10)
-					ans_arr = append(ans_arr, '\r', '\n')
-					ans_arr = append(ans_arr, echo_val...)
-					ans_arr = append(ans_arr, '\r', '\n')
-					conn.Write(ans_arr)
-				} else {
-					conn.Write([]byte("-Invalid command\r\n"))
-				}
-			}
-
-			if el == "exists" {
-				counter := 0
-				for i := range len(commands.args) - 1 {
-
-					_, ok := items[commands.args[i+1]]
-
-					if ok {
-						counter += 1
-					}
-
-					counter_str := strconv.Itoa(counter)
-
-					conn.Write([]byte(":" + counter_str + "\r\n"))
-				}
-			}
-
-			if el == "get" {
-				key := commands.args[idx+1]
-				val, ok := items[key]
-				if ok {
-					ans_arr := make([]byte, 0)
-					ans_arr = append(ans_arr, '+')
-					ans_arr = append(ans_arr, string(val)...)
-					ans_arr = append(ans_arr, '\r', '\n')
-					conn.Write(ans_arr)
-				} else {
-					conn.Write([]byte("$-1\r\n"))
-				}
-			}
-
-			if el == "set" {
-				if idx+2 < len(commands.args) {
-					key := commands.args[idx+1]
-					items[key] = []byte(commands.args[idx+2])
-					conn.Write([]byte("+OK\r\n"))
-				} else {
-					conn.Write([]byte("-Invalid command\r\n"))
-				}
-			}
-
-			if el == "del" {
-				counter := 0
-
-				for _, el := range commands.args[1:] {
-					_, ok := items[el]
-					delete(items, el)
-
-					if ok {
-						counter += 1
-					}
-				}
-
-				byte_res := make([]byte, 0)
-
-				byte_res = appendPrefix(byte_res, ':', int64(counter))
-
-				byte_res = append(byte_res, ':')
-
-				byte_res = append(byte_res, '\r', '\n')
-
-				conn.Write(byte_res)
-			}
-
-			/* 			//hasn't been checked yet
-			   			if el == "setex" {
-			   				if idx+3 < len(commands.args) {
-
-			   					key := commands.args[idx+1]
-
-			   					seconds, _ := strconv.Atoi(commands.args[idx+2])
-
-			   					val := commands.args[idx+3]
-
-			   					items[key] = []byte(val)
-
-			   					time_map[key] = time.Now().Unix() + int64(seconds)
-
-			   					conn.Write([]byte("+OK\r\n"))
-
-			   				} else {
-			   					conn.Write([]byte("-Invalid command\r\n"))
-			   				}
-			   			} */
-		}
-
-		if err != nil {
-			if err.Error() != "EOF" {
-				fmt.Println("Error reading from connection:", err)
-			}
-			break
-		}
-	}
-}
-
 // had to refactor into something more efficient, using Split which uses regex is inefficient
 // TODO: provide some benchmarking for this
 func (r *Reader) readRESP() (Command, error) {
@@ -441,11 +347,6 @@ func (r *Reader) readRESP() (Command, error) {
 	}
 
 	return res, nil
-}
-
-type C2 struct {
-	args [][]byte
-	Raw  []byte
 }
 
 func (rd *Reader) readRESP2() (C2, error) {
@@ -539,40 +440,4 @@ func parseInt(b []byte) (int, bool) {
 		n *= -1
 	}
 	return n, true
-}
-
-func (wr *Writer) writeSimpleString(s string) {
-	wr.b = append(wr.b, '+')
-	wr.b = append(wr.b, s...)
-	wr.b = append(wr.b, '\r', '\n')
-}
-
-/* func Parse(raw []byte) (Command, error) {
-	rd := Reader{buf: raw, end: len(raw)}
-	var leftover int
-	cmds, err := rd.readCommands(&leftover)
-	if err != nil {
-		return Command{}, err
-	}
-	if leftover > 0 {
-		return Command{}, errors.New("too much data")
-	}
-	return cmds[0], nil
-} */
-
-type Writer struct {
-	w   io.Writer
-	b   []byte
-	err error
-}
-
-// buffers need to be reset after reading it to the end
-type Reader struct {
-	rd  *bufio.Reader
-	buf []byte
-}
-
-type Command struct {
-	args []string
-	Raw  []byte
 }
