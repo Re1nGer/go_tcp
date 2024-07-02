@@ -12,7 +12,7 @@ import (
 func TestSetGetWithRedis(t *testing.T) {
 	ctx := context.Background()
 	rdb := redis.NewClient(&redis.Options{
-		Addr: "localhost:6379", // Replace with your Redis server address
+		Addr: "localhost:6379",
 	})
 
 	defer rdb.Close()
@@ -91,42 +91,58 @@ func TestReadRESP_EchoCommand(t *testing.T) {
 	}
 }
 
-/* func TestReadRESP_GetCommand(t *testing.T) {
-	// Create a buffer with a simple command
-	data := []byte("*1\r\n$3\r\nGET\r\n$8\r\nTESTITEM\r\n")
-	reader := bufio.NewReader(bytes.NewReader(data))
+func BenchmarkResp(b *testing.B) {
+	data := []byte("*2\r\n$4\r\nECHO\r\n$5\r\nhello\r\n")
 
-	// Call the function
-	cmd, err := readRESP(reader)
+	rd := bytes.NewReader(data)
 
-	// Assert no error and expected command/argument
-	if err != nil {
-		t.Errorf("Error reading RESP: %v", err)
-		return
-	}
+	reader := NewReader(rd)
 
-	if cmd.args[0] != "get" || len(cmd.args) != 2 || cmd.args[1] != "TESTITEM" {
-		t.Errorf("Unexpected command: %v, args: %v", cmd, cmd.args)
+	n := copy(reader.buf, data)
+
+	reader.buf = reader.buf[:n]
+
+	for i := 0; i < b.N; i++ {
+		reader.readRESP()
 	}
 }
 
-func TestReadRESP_SetCommand(t *testing.T) {
-	// Create a buffer with a simple command
-	data := []byte("*2\r\n$3\r\nSET\r\n$3\r\nkey\r\n$3\r\nval\r\n")
+func BenchmarkResp2(b *testing.B) {
+	data := []byte("*2\r\n$4\r\nECHO\r\n$5\r\nhello\r\n")
 
-	reader := bufio.NewReader(bytes.NewReader(data))
+	rd := bytes.NewReader(data)
 
-	// Call the function
-	cmd, err := readRESP(reader)
+	reader := NewReader(rd)
 
-	// Assert no error and expected command/argument
-	if err != nil {
-		t.Errorf("Error reading RESP: %v", err)
-		return
-	}
+	n := copy(reader.buf, data)
 
-	if cmd.args[0] != "set" || len(cmd.args) != 3 || cmd.args[1] != "key" || cmd.args[2] != "val" {
-		t.Errorf("Unexpected command: %v, args: %v", cmd, cmd.args)
+	reader.buf = reader.buf[:n]
+
+	for i := 0; i < b.N; i++ {
+		reader.readRESP2()
 	}
 }
-*/
+
+func BenchmarkRespDiff(b *testing.B) {
+	data := []byte("*2\r\n$4\r\nECHO\r\n$5\r\nhello\r\n")
+
+	rd := bytes.NewReader(data)
+
+	reader := NewReader(rd)
+
+	n := copy(reader.buf, data)
+
+	reader.buf = reader.buf[:n]
+
+	b.Run("old version", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			reader.readRESP()
+		}
+	})
+
+	b.Run("new version", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			reader.readRESP2()
+		}
+	})
+}

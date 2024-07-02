@@ -317,6 +317,7 @@ func main() {
 
 // had to refactor into something more efficient, using Split which uses regex is inefficient
 // TODO: provide some benchmarking for this
+// Deprecate
 func (r *Reader) readRESP() (Command, error) {
 
 	res := Command{}
