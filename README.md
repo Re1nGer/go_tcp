@@ -22,6 +22,9 @@ The server listens on port 6379 by default. Use any Redis client to interact wit
 
 This project serves as a foundation for further exploration. Consider extending functionalities with additional data structures, persistence, and advanced commands.
 
+**Contribution:**
+Consider opening an issue ticket if you want to help contrinute to the project, any help would be highly appreciated
+
 **License:**
 
 MIT License
