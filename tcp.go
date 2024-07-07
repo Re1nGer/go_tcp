@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 type C2 struct {
@@ -51,11 +50,6 @@ type conn struct {
 	cmds C2
 }
 
-type item struct {
-	item []byte
-	time time.Time
-}
-
 type Conn interface {
 	WriteError(msg string)
 	// WriteString writes a string to the client.
@@ -67,7 +61,7 @@ type Conn interface {
 	// WriteInt writes an integer to the client.
 	WriteInt(num int)
 	WriteRaw(b []byte)
-	WriteByte(b []byte)
+	WriteBytes(b []byte)
 }
 
 // this is a communication channel from client to our library
@@ -75,7 +69,7 @@ func (c conn) WriteBulk(bulk []byte)       {}
 func (c conn) WriteBulkString(bulk string) { c.wr.WriteBulkString(bulk) }
 func (c conn) WriteInt(num int)            { c.wr.WriteInt(num) }
 func (c conn) WriteError(msg string)       {}
-func (c conn) WriteByte(b []byte)          { c.wr.WriteByte(b) }
+func (c conn) WriteBytes(b []byte)         { c.wr.WriteBytes(b) }
 func (c conn) WriteString(str string)      { c.wr.WriteString(str) }
 func (c conn) WriteRaw(b []byte)           { c.wr.WriteRaw(b) }
 
@@ -223,10 +217,11 @@ func (wr *Writer) WriteString(s string) {
 	wr.b = append(wr.b, '\r', '\n')
 }
 
-func (wr *Writer) WriteByte(b []byte) {
+func (wr *Writer) WriteBytes(b []byte) error {
 	wr.b = append(wr.b, '+')
 	wr.b = append(wr.b, b...)
 	wr.b = append(wr.b, '\r', '\n')
+	return nil
 }
 
 func (wr *Writer) WriteInt(i int) {
@@ -262,8 +257,7 @@ func main() {
 	err := ListenAndServe("localhost:6379", func(conn Conn, cmd C2) {
 		fmt.Println(string(cmd.args[0]))
 		switch strings.ToLower(string(cmd.args[0])) {
-		case "client":
-			conn.WriteString("OK")
+		// each command is handled by the client
 		case "echo":
 			echo := string(cmd.args[1])
 			conn.WriteBulkString(echo)
@@ -279,7 +273,7 @@ func main() {
 			val, ok := items[string(cmd.args[1])]
 			mu.RUnlock()
 			if ok {
-				conn.WriteByte(val)
+				conn.WriteBytes(val)
 			} else {
 				conn.WriteRaw([]byte("$-1\r\n"))
 			}
@@ -315,9 +309,7 @@ func main() {
 	}
 }
 
-// had to refactor into something more efficient, using Split which uses regex is inefficient
-// TODO: provide some benchmarking for this
-// Deprecate
+// Deprecated due to being inefficient
 func (r *Reader) readRESP() (Command, error) {
 
 	res := Command{}
