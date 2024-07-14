@@ -68,7 +68,7 @@ type Conn interface {
 func (c conn) WriteBulk(bulk []byte)       {}
 func (c conn) WriteBulkString(bulk string) { c.wr.WriteBulkString(bulk) }
 func (c conn) WriteInt(num int)            { c.wr.WriteInt(num) }
-func (c conn) WriteError(msg string)       {}
+func (c conn) WriteError(msg string)       { c.wr.WriteError(msg) }
 func (c conn) WriteBytes(b []byte)         { c.wr.WriteBytes(b) }
 func (c conn) WriteString(str string)      { c.wr.WriteString(str) }
 func (c conn) WriteRaw(b []byte)           { c.wr.WriteRaw(b) }
@@ -255,8 +255,9 @@ func main() {
 	var mu sync.RWMutex
 	items := make(map[string][]byte)
 	err := ListenAndServe("localhost:6379", func(conn Conn, cmd C2) {
-		fmt.Println(string(cmd.args[0]))
 		switch strings.ToLower(string(cmd.args[0])) {
+		default:
+			conn.WriteError("Unknown command")
 		// each command is handled by the client
 		case "echo":
 			echo := string(cmd.args[1])
@@ -351,6 +352,7 @@ func (rd *Reader) readRESP2() (C2, error) {
 	}
 
 	var c C2
+	fmt.Println(string(b))
 
 	if b == '*' {
 		arg_counter, err := rd.rd.ReadBytes('\n')
@@ -367,12 +369,17 @@ func (rd *Reader) readRESP2() (C2, error) {
 		in := 0
 
 		c.args = make([][]byte, counter)
+		//gotta figure out how to throw error if passed incorrect resp message
 
 		for {
 			line, err := rd.rd.ReadBytes('\n')
 
+			if len(line) == 0 && in < counter {
+				return C2{}, errors.New("-ERR Protocol error: invalid bulk length")
+			}
+
 			if err != nil {
-				break
+				return C2{}, errors.New("error while parsing")
 			}
 
 			if len(line) > 0 && line[0] != '$' {
