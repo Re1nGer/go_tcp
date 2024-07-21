@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -344,55 +343,78 @@ func (r *Reader) readRESP() (Command, error) {
 }
 
 func (rd *Reader) readRESP2() (C2, error) {
-
 	b, err := rd.rd.ReadByte()
-
 	if err != nil {
-		return C2{}, err
+		return C2{}, fmt.Errorf("failed to read first byte: %w", err)
 	}
 
-	var c C2
-	fmt.Println(string(b))
+	if b != '*' {
+		return C2{}, fmt.Errorf("invalid RESP: expected '*', got '%c'", b)
+	}
 
-	if b == '*' {
-		arg_counter, err := rd.rd.ReadBytes('\n')
+	argCount, err := rd.readInteger()
+	if err != nil {
+		return C2{}, fmt.Errorf("failed to read array length: %w", err)
+	}
+
+	c := C2{
+		args: make([][]byte, 0, argCount), // Use capacity instead of length
+	}
+
+	for i := 0; i < argCount; i++ {
+
+		b, err := rd.rd.ReadByte()
 		if err != nil {
-			return C2{}, err
+			return C2{}, fmt.Errorf("failed to read bulk string marker: %w", err)
 		}
 
-		counter, ok := parseInt(arg_counter[:len(arg_counter)-2])
-
-		if !ok {
-			return C2{}, errors.New("couldn't parse number")
+		if b != '$' {
+			return C2{}, fmt.Errorf("invalid RESP: expected '$', got '%c'", b)
 		}
 
-		in := 0
+		strLen, err := rd.readInteger()
+		if err != nil {
+			return C2{}, fmt.Errorf("failed to read bulk string length: %w", err)
+		}
 
-		c.args = make([][]byte, counter)
-		//gotta figure out how to throw error if passed incorrect resp message
+		if strLen == -1 {
+			c.args = append(c.args, nil)
+			continue
+		}
 
-		for {
-			line, err := rd.rd.ReadBytes('\n')
+		bulkString := make([]byte, strLen)
+		_, err = io.ReadFull(rd.rd, bulkString)
+		if err != nil {
+			return C2{}, fmt.Errorf("failed to read bulk string content: %w", err)
+		}
 
-			if len(line) == 0 && in < counter {
-				return C2{}, errors.New("-ERR Protocol error: invalid bulk length")
-			}
+		c.args = append(c.args, bulkString)
 
-			if err != nil {
-				return C2{}, errors.New("error while parsing")
-			}
-
-			if len(line) > 0 && line[0] != '$' {
-				c.args[in] = append(c.args[in], line[:len(line)-2]...)
-				in += 1
-			}
-			if counter == in {
-				break
-			}
+		_, err = rd.rd.Discard(2)
+		if err != nil {
+			return C2{}, fmt.Errorf("failed to read CRLF after bulk string: %w", err)
 		}
 	}
-	return c, nil
 
+	return c, nil
+}
+
+func (rd *Reader) readInteger() (int, error) {
+	line, err := rd.rd.ReadBytes('\n')
+	if err != nil {
+		return 0, err
+	}
+
+	if len(line) < 2 || line[len(line)-2] != '\r' {
+		return 0, fmt.Errorf("invalid integer format: missing CRLF")
+	}
+
+	n, err := strconv.Atoi(string(line[:len(line)-2]))
+	if err != nil {
+		return 0, fmt.Errorf("invalid integer: %w", err)
+	}
+
+	return n, nil
 }
 
 func appendPrefix(b []byte, c byte, n int64) []byte {

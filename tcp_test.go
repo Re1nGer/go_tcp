@@ -52,15 +52,15 @@ func TestReadRESP2_EchoCommand(t *testing.T) {
 	// Call the function
 	cmd, err := reader.readRESP2()
 
-	if string(cmd.args[0]) != "ECHO" {
-		t.Errorf("Error reading RESPPPPRRRRp: %v", string(cmd.args[0]))
-		t.Log(len(string(cmd.args[0])))
-	}
-
 	// Assert no error and expected command/argument
 	if err != nil {
 		t.Errorf("Error reading RESP: %v", err)
 		return
+	}
+
+	if string(cmd.args[0]) != "ECHO" {
+		t.Errorf("Error reading RESPPPPRRRRp: %v", string(cmd.args[0]))
+		t.Log(len(string(cmd.args[0])))
 	}
 
 }
@@ -87,7 +87,7 @@ func TestCommand(t *testing.T) {
 
 func TestReadRESP_EchoCommand(t *testing.T) {
 	// Create a buffer with a simple command
-	data := []byte("*2\r\n$4\r\nECHO\r\n$5\r\nhello\r\n")
+	data := []byte("*2\r\n$3\r\nGET\r\n$5\r\nhello\r\n")
 
 	rd := bytes.NewReader(data)
 
